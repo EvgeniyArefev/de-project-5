@@ -8,10 +8,14 @@ from datetime import date, timedelta, datetime
 from airflow import DAG 
 from airflow.operators.python import PythonOperator
 from airflow.utils.task_group import TaskGroup
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.hooks.http_hook import HttpHook
+from airflow.operators.dummy_operator import DummyOperator
 
 
-api_key = '25c27781-8fde-4b30-a22e-524044a7580f'
-url = 'https://d5d04q7d963eapoepsqr.apigw.yandexcloud.net'
+http_conn_id = HttpHook.get_connection('http_conn_id')
+api_key = http_conn_id.extra_dejson.get('api_key')
+url = http_conn_id.host
 
 nickname = 'evgeniy-arefev'
 cohort = '8'
@@ -21,20 +25,14 @@ headers = {
     "X-Cohort": cohort
 }
 
-pg_conn = {
-    "database": "de",
-    "user": "jovyan",
-    "password": "jovyan",
-    "host": "localhost",
-    "port": 5432
-}
-
+postgres_conn_id = 'PG_WAREHOUSE_CONNECTION'
+dwh_hook = PostgresHook(postgres_conn_id)
 
 '''
 Settings fot upload layers
 '''
 def get_setting(setting_table, workflow_key):
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -54,7 +52,7 @@ def get_setting(setting_table, workflow_key):
     return obj
 
 def save_setting(setting_table, workflow_key, workflow_setting):
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -81,7 +79,7 @@ def upload_couriers_api():
     wf_key = 'stg_couriers'
     last_loaded_key = 'last_courier_id'
 
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     cursor = connection.cursor()
 
     wf_setting = get_setting(setting_table, wf_key)
@@ -117,7 +115,7 @@ def upload_deliveries_api():
     wf_key = 'stg_deliveries'
     last_loaded_key = 'last_load_date'
 
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     cursor = connection.cursor()
 
     wf_setting = get_setting(setting_table, wf_key)
@@ -167,7 +165,7 @@ DDS Layer
 '''
 #upload dds.dm_orders
 def load_raw_orders(last_order_load):
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -205,7 +203,7 @@ def insert_dds_dm_orders():
         order_dt_list.append(row[1])
 
 
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     cursor = connection.cursor()
 
     sql = f"INSERT INTO dds.dm_orders (order_id_source) VALUES %s"
@@ -222,7 +220,7 @@ def insert_dds_dm_orders():
 
 #upload dds.dm_deliveries
 def load_raw_deliverys(last_delivery_load):
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -259,7 +257,7 @@ def insert_dds_dm_deliveries():
 
         delivery_dt_list.append(row[1])
 
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     cursor = connection.cursor()
 
     sql = f"INSERT INTO dds.dm_deliveries (delivery_id_source) VALUES %s"
@@ -276,7 +274,7 @@ def insert_dds_dm_deliveries():
 
 #upload dds.dm_couriers
 def load_raw_couriers(last_serial_id):
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -310,7 +308,7 @@ def insert_dds_dm_couriers():
         values.append(row[1:])
         couriers_ids_list.append(row[0])
 
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     cursor = connection.cursor()
 
     sql = f"INSERT INTO dds.dm_couriers (courier_id_source, name) VALUES %s"
@@ -327,7 +325,7 @@ def insert_dds_dm_couriers():
 
 #upload dds.fct_deliveries
 def create_values_for_fct_deliveries(last_order_date):
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -382,7 +380,7 @@ def insert_dds_fct_deliveries():
     order_dt_list = [row[3] for row in fct_deliveries_rows]
 
 
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
     cursor = connection.cursor()
 
     sql = f"INSERT INTO dds.fct_deliveries (order_id_dwh, delivery_id_dwh, courier_id_dwh, order_ts, delivery_ts, address, rate, tip_sum, total_sum) VALUES %s"
@@ -398,7 +396,7 @@ def insert_dds_fct_deliveries():
         save_setting(setting_table, wf_key, wf_setting)
 
 def insert_into_cdm_dm_courier_ledger():
-    connection = psycopg2.connect(database=pg_conn['database'], user=pg_conn['user'],  password=pg_conn['password'], host=pg_conn['host'], port=pg_conn['port'])
+    connection = dwh_hook.get_conn()
 
     with connection:
         with connection.cursor() as cursor:
@@ -436,48 +434,53 @@ with DAG(
     catchup=False,
     start_date=datetime.today()
 ) as dag:
-    with TaskGroup(group_id='upload_to_stg') as tg1:
-        stg_couriers = PythonOperator(
-            task_id = "stg_couriers",
-            python_callable = upload_couriers_api
-        )
+   
+    stg_couriers = PythonOperator(
+        task_id = "stg_couriers",
+        python_callable = upload_couriers_api
+    )
 
-        stg_deliveries = PythonOperator(
-            task_id = "stg_deliveries",
-            python_callable = upload_deliveries_api
-        )
+    stg_deliveries = PythonOperator(
+        task_id = "stg_deliveries",
+        python_callable = upload_deliveries_api
+    )
 
-    with TaskGroup(group_id='upload_to_dds') as tg2:
-        dds_dm_orders = PythonOperator(
-            task_id = "dds_dm_orders",
-            python_callable = insert_dds_dm_orders
-        )
 
-        dds_dm_deliverys = PythonOperator(
-            task_id = "dds_dm_delivery",
-            python_callable = insert_dds_dm_deliveries
-        )
+    branch_to_dds = DummyOperator(
+        task_id = 'branch_to_dds'
+    )
 
-        dds_dm_couriers = PythonOperator(
-            task_id = "dds_dm_couriers",
-            python_callable = insert_dds_dm_couriers
-        )
+    dds_dm_orders = PythonOperator(
+        task_id = "dds_dm_orders",
+        python_callable = insert_dds_dm_orders
+    )
 
-        dds_fct_deliveries = PythonOperator(
-            task_id = "dds_fct_deliveries",
-            python_callable = insert_dds_fct_deliveries
-        )
+    dds_dm_deliverys = PythonOperator(
+        task_id = "dds_dm_delivery",
+        python_callable = insert_dds_dm_deliveries
+    )
 
-    with TaskGroup(group_id='upload_to_cdm') as tg3:
-        cdm_dm_courier_ledger = PythonOperator(
-            task_id = "cdm_dm_courier_ledger",
-            python_callable = insert_into_cdm_dm_courier_ledger
-        )
+    dds_dm_couriers = PythonOperator(
+        task_id = "dds_dm_couriers",
+        python_callable = insert_dds_dm_couriers
+    )
+
+    dds_fct_deliveries = PythonOperator(
+        task_id = "dds_fct_deliveries",
+        python_callable = insert_dds_fct_deliveries
+    )
+
+
+    cdm_dm_courier_ledger = PythonOperator(
+        task_id = "cdm_dm_courier_ledger",
+        python_callable = insert_into_cdm_dm_courier_ledger
+    )
 
     (
-        tg1 
+        [stg_couriers, stg_deliveries]
+        >> branch_to_dds
         >> [dds_dm_orders, dds_dm_deliverys, dds_dm_couriers] >> dds_fct_deliveries
-        >> tg3
+        >> cdm_dm_courier_ledger
     )
 
 
